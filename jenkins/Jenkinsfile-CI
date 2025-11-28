@@ -1,0 +1,121 @@
+pipeline {
+    agent any
+    
+    environment {
+        AWS_REGION = 'us-west-1'
+        ECR_REGISTRY = "${env.ECR_REGISTRY ?: 'ACCOUNT_ID.dkr.ecr.us-west-1.amazonaws.com'}"
+        ECR_REPOSITORY = 'my-app-repo'
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        DOCKER_IMAGE = "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+        DOCKER_IMAGE_LATEST = "${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code...'
+                checkout scm
+            }
+        }
+        
+        stage('Build Info') {
+            steps {
+                script {
+                    echo "Building image: ${DOCKER_IMAGE}"
+                    echo "AWS Region: ${AWS_REGION}"
+                    echo "ECR Repository: ${ECR_REPOSITORY}"
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                dir('microservice') {
+                    script {
+                        echo 'Building Docker image...'
+                        sh """
+                            docker build -t ${DOCKER_IMAGE} .
+                            docker tag ${DOCKER_IMAGE} ${DOCKER_IMAGE_LATEST}
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                dir('microservice') {
+                    script {
+                        echo 'Running tests...'
+                        sh """
+                            # Install test dependencies
+                            pip3 install -r requirements.txt -r requirements-dev.txt || true
+                            
+                            # Run unit tests
+                            pytest test_app.py -v --junitxml=test-results.xml || true
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Login to ECR') {
+            steps {
+                script {
+                    echo 'Logging in to Amazon ECR...'
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                        docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                    """
+                }
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                script {
+                    echo 'Pushing image to ECR...'
+                    sh """
+                        docker push ${DOCKER_IMAGE}
+                        docker push ${DOCKER_IMAGE_LATEST}
+                    """
+                }
+            }
+        }
+        
+        stage('Clean Up') {
+            steps {
+                script {
+                    echo 'Cleaning up local images...'
+                    sh """
+                        docker rmi ${DOCKER_IMAGE} || true
+                        docker rmi ${DOCKER_IMAGE_LATEST} || true
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'CI Pipeline completed successfully!'
+            echo "Image pushed: ${DOCKER_IMAGE}"
+            echo "Image version: ${IMAGE_TAG}"
+            
+            // Save image version for CD pipeline
+            script {
+                sh """
+                    echo ${IMAGE_TAG} > image_version.txt
+                """
+                archiveArtifacts artifacts: 'image_version.txt', fingerprint: true
+            }
+        }
+        failure {
+            echo 'CI Pipeline failed!'
+        }
+        always {
+            // Cleanup workspace
+            cleanWs()
+        }
+    }
+}

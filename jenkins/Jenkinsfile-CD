@@ -1,0 +1,186 @@
+pipeline {
+    agent any
+    
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag to deploy')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Deployment environment')
+    }
+    
+    environment {
+        AWS_REGION = 'us-west-1'
+        EKS_CLUSTER = 'dev-CP-EKS-CLUSTER'
+        ECR_REGISTRY = "${env.ECR_REGISTRY ?: 'ACCOUNT_ID.dkr.ecr.us-west-1.amazonaws.com'}"
+        ECR_REPOSITORY = 'my-app-repo'
+        NAMESPACE = 'email-processor'
+        DEPLOYMENT_NAME = 'email-processor'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code...'
+                checkout scm
+            }
+        }
+        
+        stage('Configure kubectl') {
+            steps {
+                script {
+                    echo 'Configuring kubectl for EKS...'
+                    sh """
+                        aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
+                        kubectl version --client
+                        kubectl cluster-info
+                    """
+                }
+            }
+        }
+        
+        stage('Verify Image') {
+            steps {
+                script {
+                    echo "Verifying image exists: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${params.IMAGE_TAG}"
+                    sh """
+                        aws ecr describe-images \
+                            --repository-name ${ECR_REPOSITORY} \
+                            --image-ids imageTag=${params.IMAGE_TAG} \
+                            --region ${AWS_REGION}
+                    """
+                }
+            }
+        }
+        
+        stage('Update Kubernetes Manifests') {
+            steps {
+                dir('microservice/k8s') {
+                    script {
+                        echo 'Updating Kubernetes manifests with new image...'
+                        sh """
+                            # Get AWS Account ID
+                            export AWS_ACCOUNT_ID=\$(aws sts get-caller-identity --query Account --output text)
+                            
+                            # Update configmap with correct values
+                            sed -i "s|ACCOUNT_ID|\${AWS_ACCOUNT_ID}|g" configmap.yaml
+                            sed -i "s|ACCOUNT_ID|\${AWS_ACCOUNT_ID}|g" serviceaccount.yaml
+                            
+                            # Update deployment with new image
+                            sed -i "s|image:.*|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${params.IMAGE_TAG}|g" deployment.yaml
+                            sed -i "s|<ECR_REGISTRY>|${ECR_REGISTRY}|g" deployment.yaml
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            steps {
+                dir('microservice/k8s') {
+                    script {
+                        echo 'Deploying to Kubernetes...'
+                        sh """
+                            # Apply namespace (if not exists)
+                            kubectl apply -f namespace.yaml
+                            
+                            # Apply configmap and service account
+                            kubectl apply -f configmap.yaml
+                            kubectl apply -f serviceaccount.yaml
+                            
+                            # Apply deployment and service
+                            kubectl apply -f deployment.yaml
+                            
+                            # Apply HPA
+                            kubectl apply -f hpa.yaml
+                            
+                            # Apply ingress
+                            kubectl apply -f ingress.yaml
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Wait for Rollout') {
+            steps {
+                script {
+                    echo 'Waiting for deployment to complete...'
+                    sh """
+                        kubectl rollout status deployment/${DEPLOYMENT_NAME} -n ${NAMESPACE} --timeout=300s
+                    """
+                }
+            }
+        }
+        
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    echo 'Verifying deployment...'
+                    sh """
+                        echo "Pods Status:"
+                        kubectl get pods -n ${NAMESPACE} -l app=email-processor
+                        
+                        echo "\\nDeployment Status:"
+                        kubectl get deployment ${DEPLOYMENT_NAME} -n ${NAMESPACE}
+                        
+                        echo "\\nService Status:"
+                        kubectl get svc -n ${NAMESPACE}
+                        
+                        echo "\\nIngress Status:"
+                        kubectl get ingress -n ${NAMESPACE}
+                    """
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                script {
+                    echo 'Performing health check...'
+                    sh """
+                        # Wait a bit for pods to be ready
+                        sleep 10
+                        
+                        # Get pod name
+                        POD_NAME=\$(kubectl get pods -n ${NAMESPACE} -l app=email-processor -o jsonpath='{.items[0].metadata.name}')
+                        
+                        echo "Testing health endpoint on pod: \$POD_NAME"
+                        kubectl exec -n ${NAMESPACE} \$POD_NAME -- curl -f http://localhost:8080/health || true
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'CD Pipeline completed successfully!'
+            echo "Deployed image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${params.IMAGE_TAG}"
+            echo "Environment: ${params.ENVIRONMENT}"
+            
+            script {
+                sh """
+                    echo "\\n=== Deployment Summary ==="
+                    kubectl get all -n ${NAMESPACE}
+                    
+                    echo "\\n=== Load Balancer URL ==="
+                    kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
+                    echo ""
+                """
+            }
+        }
+        failure {
+            echo 'CD Pipeline failed!'
+            script {
+                sh """
+                    echo "\\n=== Pod Logs ==="
+                    kubectl logs -n ${NAMESPACE} -l app=email-processor --tail=50 || true
+                    
+                    echo "\\n=== Pod Events ==="
+                    kubectl get events -n ${NAMESPACE} --sort-by='.lastTimestamp' || true
+                """
+            }
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqs-processor
+  namespace: sqs-processor
+  labels:
+    app: sqs-processor
+spec:
+  replicas: 1  # Single instance to avoid duplicate processing
+  selector:
+    matchLabels:
+      app: sqs-processor
+  template:
+    metadata:
+      labels:
+        app: sqs-processor
+    spec:
+      serviceAccountName: sqs-processor
+      containers:
+      - name: sqs-processor
+        image: <ECR_REGISTRY>/sqs-processor:latest  # Replace with your ECR registry
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: health
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: sqs-processor-config
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      restartPolicy: Always

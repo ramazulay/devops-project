@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sqs-processor-config
+  namespace: sqs-processor
+data:
+  AWS_REGION: "us-west-1"
+  SQS_QUEUE_URL: "<SQS_QUEUE_URL>"  # Replace with your SQS queue URL from Terraform output
+  S3_BUCKET_NAME: "<S3_BUCKET_NAME>"  # Replace with your S3 bucket name from Terraform output
+  POLL_INTERVAL_SECONDS: "30"  # Poll every 30 seconds
+  MAX_MESSAGES_PER_POLL: "10"  # Process up to 10 messages per poll
+  S3_PREFIX: "sqs-messages/"  # S3 folder path for storing messages

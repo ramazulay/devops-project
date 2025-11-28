@@ -1,0 +1,16 @@
+*.md
+*.bak
+.git
+.gitignore
+k8s/
+deploy.sh
+Jenkinsfile-*
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
