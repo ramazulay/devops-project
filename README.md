@@ -167,11 +167,10 @@ We'll create 2 reusable pipelines: 1 for CI (build) and 1 for CD (deploy). Each 
    - Scroll to **Pipeline** section
    - **Definition**: Select **"Pipeline script from SCM"**
    - **SCM**: Select **"Git"**
-   - **Repository URL**: Enter your Git repository URL
-     - Example: `https://github.com/yourusername/devops-project.git`
-   - **Credentials**: If private repo, add Git credentials (click "Add")
-   - **Branch Specifier**: `*/main` (or your branch name)
-   - **Script Path**: `Jenkinsfile-CI` (we'll create a unified CI Jenkinsfile)
+   - **Repository URL**: `https://github.com/ramazulay/devops-project.git`
+   - **Credentials**: The repo is public
+   - **Branch Specifier**: `*/main`
+   - **Script Path**: `jenkins/Jenkinsfile-CI`
 6. Click **Save**
 
 **What this pipeline does:**
@@ -219,9 +218,9 @@ We'll create 2 reusable pipelines: 1 for CI (build) and 1 for CD (deploy). Each 
    - Scroll to **Pipeline** section
    - **Definition**: Select **"Pipeline script from SCM"**
    - **SCM**: Select **"Git"**
-   - **Repository URL**: Your Git repository URL
+   - **Repository URL**: `https://github.com/ramazulay/devops-project.git`
    - **Branch Specifier**: `*/main`
-   - **Script Path**: `Jenkinsfile-CD` (we'll create a unified CD Jenkinsfile)
+   - **Script Path**: `jenkins/Jenkinsfile-CD`
 6. Click **Save**
 
 **What this pipeline does:**
@@ -232,27 +231,6 @@ We'll create 2 reusable pipelines: 1 for CI (build) and 1 for CD (deploy). Each 
 - Waits for rollout to complete
 - Verifies pods are running
 - Performs health check
-
----
-
-### Alternative: Separate Pipelines (If You Prefer)
-
-If you prefer having separate pipelines for each service for clarity, you can create 4 pipelines:
-
-- `email-processor-ci` → Script Path: `microservice/Jenkinsfile-CI`
-- `email-processor-cd` → Script Path: `microservice/Jenkinsfile-CD`
-- `sqs-processor-ci` → Script Path: `sqs-processor/Jenkinsfile-CI`
-- `sqs-processor-cd` → Script Path: `sqs-processor/Jenkinsfile-CD`
-
-**Benefits of unified approach:**
-- ✅ Less pipelines to manage (2 vs 4)
-- ✅ Consistent build/deploy process
-- ✅ Easier to add new microservices
-
-**Benefits of separate approach:**
-- ✅ Clearer which service is being built/deployed
-- ✅ Simpler Jenkinsfiles (no parameter logic)
-- ✅ Separate build history per service
 
 ---
 
@@ -342,35 +320,6 @@ Now that pipelines are created, let's build and deploy both microservices!
 **Success indicators:**
 - Build status shows blue/green checkmark
 - Pods are running in `sqs-processor` namespace
-
----
-
-### Quick Build & Deploy (Both Services)
-
-To deploy both services quickly:
-
-```bash
-# Option 1: Use Jenkins (2 pipelines, 4 builds total)
-# Build both images
-1. microservices-ci → SERVICE: email-processor → Build
-2. microservices-ci → SERVICE: sqs-processor → Build
-
-# Deploy both services
-3. microservices-cd → SERVICE: email-processor, IMAGE_TAG: latest, ENV: dev → Build
-4. microservices-cd → SERVICE: sqs-processor, IMAGE_TAG: latest, ENV: dev → Build
-```
-
-**OR if using separate pipelines:**
-
-```bash
-# Build images
-1. email-processor-ci → Build Now
-2. sqs-processor-ci → Build Now
-
-# Deploy services
-3. email-processor-cd → Build with Parameters (IMAGE_TAG: latest, ENV: dev)
-4. sqs-processor-cd → Build with Parameters (IMAGE_TAG: latest, ENV: dev)
-```
 
 ---
 
@@ -472,96 +421,6 @@ kubectl logs -n sqs-processor -l app=sqs-processor -f
 
 # Press Ctrl+C to stop following logs
 ```
-
----
-
-## 🔄 Understanding CI/CD Workflow
-
-### CI Pipeline (Continuous Integration)
-
-**Triggers**: Manual build (or can be automated with Git webhooks)
-
-**Steps:**
-1. **Checkout**: Clone repository
-2. **Build**: Create Docker image from Dockerfile
-3. **Test**: Run unit tests (if configured)
-4. **Tag**: Tag image with build number
-5. **Push**: Upload image to AWS ECR
-
-**Output**: Docker image in ECR (e.g., `email-processor:build-5`)
-
----
-
-### CD Pipeline (Continuous Deployment)
-
-**Triggers**: Manual with parameters
-
-**Steps:**
-1. **Checkout**: Clone repository
-2. **Configure**: Set up kubectl for EKS
-3. **Verify**: Check image exists in ECR
-4. **Update**: Modify K8s manifests with image tag
-5. **Deploy**: Apply manifests to cluster
-6. **Wait**: Monitor rollout progress
-7. **Verify**: Check pods are healthy
-8. **Test**: Perform health check
-
-**Output**: Running application in Kubernetes
-
----
-
-## 🔁 Making Changes & Redeploying
-
-### Scenario: You updated the Email Processor code
-
-1. **Commit changes** to Git repository
-2. Go to Jenkins → **`microservices-ci`**
-3. Click **"Build with Parameters"**
-4. Select **SERVICE**: `email-processor`
-5. Click **"Build"** (creates build-3)
-6. Wait for build to complete
-7. Go to **`microservices-cd`**
-8. Click **"Build with Parameters"**
-9. Select **SERVICE**: `email-processor`
-10. Set **IMAGE_TAG**: `build-3` (or `latest`)
-11. Set **ENVIRONMENT**: `dev`
-12. Click **"Build"**
-13. New version is deployed!
-
-### Rolling Back to Previous Version
-
-1. Go to **`microservices-cd`**
-2. Click **"Build with Parameters"**
-3. Select **SERVICE**: `email-processor`
-4. Set **IMAGE_TAG**: `build-2` (previous version)
-5. Set **ENVIRONMENT**: `dev`
-6. Click **"Build"**
-7. Application rolls back to previous version
-
----
-
-## 📝 Pipeline Summary
-
-### Unified Approach (Recommended)
-
-| Pipeline | What It Does | Parameters |
-|----------|--------------|------------|
-| **microservices-ci** | Builds and pushes Docker images to ECR | SERVICE (email-processor, sqs-processor) |
-| **microservices-cd** | Deploys microservices to Kubernetes | SERVICE, IMAGE_TAG, ENVIRONMENT |
-
-**Total**: 2 pipelines for all microservices
-
-### Separate Approach (Alternative)
-
-| Pipeline | What It Does | Parameters |
-|----------|--------------|------------|
-| **email-processor-ci** | Builds Email Processor image | None |
-| **email-processor-cd** | Deploys Email Processor | IMAGE_TAG, ENVIRONMENT |
-| **sqs-processor-ci** | Builds SQS Processor image | None |
-| **sqs-processor-cd** | Deploys SQS Processor | IMAGE_TAG, ENVIRONMENT |
-
-**Total**: 4 pipelines (2 per microservice)
-
 ---
 
 ## 🧹 Cleanup
@@ -572,18 +431,15 @@ kubectl delete namespace email-processor
 kubectl delete namespace sqs-processor
 kubectl delete namespace jenkins
 
-# Delete infrastructure
-cd enviroments/dev
-tofu destroy -var-file=terraform.tfvars
 ```
-
-**Note**: If you get subnet deletion errors, delete Load Balancers first:
+**Note**: Delete Load Balancers first:
 ```bash
 # List and delete load balancers
 aws elb describe-load-balancers --region us-west-1
 aws elb delete-load-balancer --load-balancer-name <lb-name> --region us-west-1
 
-# Wait 30 seconds, then retry destroy
+# Delete infrastructure
+cd enviroments/dev
 tofu destroy -var-file=terraform.tfvars
 ```
 
@@ -600,7 +456,3 @@ tofu destroy -var-file=terraform.tfvars
 - **Email Processor**: HTTP API that sends messages to SQS
 - **SQS Processor**: Background worker that saves messages to S3
 
----
-
-**Cost**: ~$150-200/month  
-**Support**: Check logs with `kubectl logs` or review Jenkins console output

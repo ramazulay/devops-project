@@ -16,7 +16,6 @@ spec:
       serviceAccountName: jenkins
       securityContext:
         fsGroup: 1000
-        runAsUser: 1000
       containers:
       - name: jenkins
         image: jenkins/jenkins:lts-jdk17
@@ -26,6 +25,9 @@ spec:
           containerPort: 8080
         - name: jnlp
           containerPort: 50000
+        securityContext:
+          runAsUser: 1000
+          runAsNonRoot: true
         env:
         - name: JAVA_OPTS
           value: "-Djenkins.install.runSetupWizard=false -Dhudson.model.DirectoryBrowserSupport.CSP= -Xmx256m -Xms128m"
@@ -63,6 +65,7 @@ spec:
         image: docker:24-dind
         securityContext:
           privileged: true
+          runAsUser: 0
         env:
         - name: DOCKER_TLS_CERTDIR
           value: ""

@@ -2,18 +2,18 @@ product_name     = "PROJECT"
 company_name     = "CP"
 environment      = "dev"
 region           = "us-west-1"
-azs              = ["us-west-1a", "us-west-1c"]
+azs              = ["us-west-1b", "us-west-1c"]
 cidr_block       = "172.80.0.0/16"
 route_cidr_block = "0.0.0.0/0"
 #cidr_blocks  = [ "172.80.0.1/24", "172.80.0.2/24", "172.80.0.3/24", "172.80.0.4/24" ]
 
 
 subnets = [
-  { name = "subnet-a", cidr = "172.80.1.0/24", azs = "us-west-1a" },
+  { name = "subnet-b", cidr = "172.80.1.0/24", azs = "us-west-1b" },
   { name = "subnet-c", cidr = "172.80.2.0/24", azs = "us-west-1c" }
 ]
 public_subnet = [
-  { name = "public-subnet-a", cidr = "172.80.5.0/24", azs = "us-west-1a" },
+  { name = "public-subnet-b", cidr = "172.80.5.0/24", azs = "us-west-1b" },
   { name = "public-subnet-c", cidr = "172.80.6.0/24", azs = "us-west-1c" },
 ]
 
